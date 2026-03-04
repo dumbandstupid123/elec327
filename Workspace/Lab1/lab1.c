@@ -1,6 +1,5 @@
 /*
- * This template file implements a simple GPIO output manipulation using
- * a state machine in an infinite loop.
+ * This template file
  */
 
 #include <ti/devices/msp/msp.h>
@@ -8,29 +7,29 @@
 #include "initialize_leds.h"
 #include "state_machine_logic.h"
 
-/* This results in approximately 0.5s of delay assuming 32 MHz CPU_CLK */
-#define DELAY (16000000)
+/* This results in approximately 1s of delay assuming 32 MHz CPU_CLK */
+#define ONE_SEC (32000000)
 
 int main(void)
 {
-    InitializeGPIO();
+    InitializeGPIO(); 
     
-    int state = OFF; // initialize state machine
+    // We create a local 'state' variable here. 
+    int state = 0; 
 
-    // Functional
     while (1) {
-        int output = GetStateOutputGPIOA(state);
-        GPIOA->DOUT31_0 = output;
+        // 1. Get the pattern for the current state
+        GPIOA->DOUT31_0 = GetStateOutputGPIOA(state);
 
+        // 2. Wait 
+        delay_cycles(ONE_SEC);
+
+        // 3. Update 'state' using the function from state_machine_logic.c
         state = GetNextState(state);
-        delay_cycles(DELAY);
     }
 }
 
 /*
- * Copyright (c) 2026, Caleb Kemere
- * Derived from example code which is
- *
  * Copyright (c) 2023, Texas Instruments Incorporated
  * All rights reserved.
  *

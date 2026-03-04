@@ -7,23 +7,18 @@
 /* TODO - write these functions! */
 
 void SetTimerA1Period(uint16_t period) {
-
-    // HINT: This function should change both the PWM period
-    //   AND the PWM duty cycle to be 50% of the period!!!
-    //   It probably would be useful to #define the set of periods that correspond to the tones you  want to use!
-    //   Those sorts of constants should go in the HEADER file!
-
-    return;
+    // Set the period (LOAD = period gives freq = 8MHz / (period+1))
+    // and duty cycle to 50% for a clean square wave
+    TIMA1->COUNTERREGS.LOAD    = period;
+    TIMA1->COUNTERREGS.CC_01[0] = (period + 1u) / 2u;
 }
 
 void EnableTimerA1PWM(void) {
-    // Hint: This function just needs to toggle 1 bit in a register!
-    return;
+    TIMA1->COUNTERREGS.CTRCTL |= GPTIMER_CTRCTL_EN_ENABLED;
 }
 
 void DisableTimerA1PWM(void) {
-    // Hint: This function just needs to toggle 1 bit in a register!
-    return;
+    TIMA1->COUNTERREGS.CTRCTL &= ~(GPTIMER_CTRCTL_EN_ENABLED);
 }
 // ====================================================================================================================
 // ====================================================================================================================

@@ -1,7 +1,17 @@
-/*
- * This template file implements an interrupt-driven infinite loop which
- * cycles a state machine.
- */
+// lab 3 - setting the clock with a button
+//
+// ok so heres the deal. the timer fires ~2048 times a second and every time
+// it does, we wake up, check the button, update the LEDs, compute the next
+// state, and go back to sleep. thats literally the whole program.
+//
+// the important thing is that GetNextState and GetStateOutput are PURE
+// FUNCTIONS -- they only depend on what you pass in. no hidden globals.
+// thats what makes this a real state machine and not just spaghetti code.
+//
+// timer is running at LFCLK/16 = 2048 Hz so:
+//   - PWM runs at 128 Hz (you cant see it flicker, trust me i checked)
+//   - button debounce threshold is ~7ms (spec says 5ms minimum, were good)
+//   - long press fires after exactly 1 second
 
 #include <ti/devices/msp/msp.h>
 #include "hw_interface.h"
@@ -9,35 +19,49 @@
 
 int main(void)
 {
+    // turn everything on
     InitializeLEDs();
-
     InitializeButton();
-
     InitializeTimerG0();
 
-    state_t state; // initialize state machine
-    state.hour = 0;
-    state.minute = 0;
+    // set up the initial state -- clock starts at 12:00, normal mode
+    // have to initialize every field because theres no memset in this template
+    state_t state;
+    state.hour            = 0;
+    state.minute          = 0;
+    state.mode            = MODE_NORMAL;
+    state.flash_on        = 0;       // not flashing yet
+    state.flash_ticks     = 0;
+    state.clock_ticks     = 0;
+    state.btn_was_down    = 0;       // button starts unpressed, shockingly
+    state.btn_hold_ticks  = 0;
+    state.long_press_done = 0;
+    state.pwm_tick        = 0;
+    state.brightness      = BRIGHTNESS_DEFAULT;  // mid brightness to start
 
-    uint32_t input;
-
-    SetTimerG0Delay(32000); // Once per second interrupts
+    // LOAD=16 means the timer counts down from 16 to 0 using the 32768 Hz LFCLK
+    // thats 32768/16 = 2048 interrupts per second, about every 0.49ms
+    SetTimerG0Delay(16);
     EnableTimerG0();
 
     while (1) {
-        // Need to get input from GPIO here
-        input = GetButtonState();
+        // 1. is the button being pressed right now? (1=yes, 0=no)
+        uint32_t input = GetButtonState();
 
-        // Read-Modify-Write
-        int current_gpio_state = GPIOA->DOUT31_0;
-        current_gpio_state &= ~(led_mask); // Make the pins that we might want to edit zeros
-        int output = GetStateOutput(state);
-        GPIOA->DOUT31_0 = current_gpio_state + output;
+        // 2. figure out what the LEDs should look like and write it
+        // read-modify-write so we dont accidentally clobber any non-LED pins
+        int gpio_out = GPIOA->DOUT31_0;
+        gpio_out &= ~led_mask;              // wipe just the LED bits
+        gpio_out |= GetStateOutput(state);  // drop in the new LED values
+        GPIOA->DOUT31_0 = gpio_out;
 
+        // 3. advance the state machine (this is where all the logic lives)
         state = GetNextState(state, input);
-        __WFI(); // Go to sleep until timer counts down again.
-    }
 
+        // 4. go to sleep until the next timer tick fires
+        // the cpu will be in standby here so power consumption is low
+        __WFI();
+    }
 }
 
 

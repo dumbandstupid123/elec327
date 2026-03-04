@@ -1,8 +1,23 @@
-
 /*
  * Copyright (c) 2026, Caleb Kemere
  * All rights reserved, see LICENSE.md
  *
+ * Lab 6 — SPI RGB LED + buzzer control via state machine
+ *
+ * On power-up the board plays "Mary Had a Little Lamb" on the buzzer
+ * while the four SPI RGB LEDs cycle through three distinct color patterns
+ * (one per note: red=E6, blue=D6, yellow=C6) in sync with the music.
+ * Inter-note silences leave all LEDs dark.
+ *
+ * Pressing any button stops the song and enters button-feedback mode:
+ *   • The LED nearest the pressed button lights its Simon color
+ *     (SW1=green, SW2=red, SW3=yellow, SW4=blue) and plays the
+ *     corresponding Simon tone.
+ *   • Releasing all buttons turns all LEDs off and silences the buzzer.
+ *
+ * Two ISRs are active (TIMG0 and SPI0).  Only TIMG0 ticks advance the
+ * state machine; SPI0 interrupts are used solely to clock out the LED
+ * message and are otherwise ignored by the main loop.
  */
 
 #include <ti/devices/msp/msp.h>
@@ -11,51 +26,41 @@
 #include "timing.h"
 #include "buzzer.h"
 #include "leds.h"
-
-uint16_t onTxPacket[] =  {0x0, 0x0, 0xE5F0, 0x1010, 0xE510, 0x10F0, 0xE510, 0xF010, 0xE510, 0x0010, 0xFFFF, 0xFFFF};
-uint16_t offTxPacket[] = {0x0, 0x0, 0xE000, 0x0000, 0xE000, 0x0000, 0xE000, 0x0000, 0xE000, 0x0000, 0xFFFF, 0xFFFF};
-int message_len = sizeof(onTxPacket) / sizeof(onTxPacket[0]);
+#include "state_machine.h"
 
 int main(void)
 {
     InitializeButtonGPIO();
-    InitializeBuzzer();
+    InitializeBuzzer();       // starts buzzer at 2 kHz
     InitializeLEDInterface();
     InitializeTimerG0();
 
-    // let the buzzer run for 0.1 s just so we know it's there!
-    delay_cycles(1600000);
+    // Brief startup beep so we know the hardware is alive
+    delay_cycles(1600000);    // ~0.1 s at 32 MHz
     DisableBuzzer();
 
-    SetTimerG0Delay(20); // 20 ticks at 32 kHz is 0.6 ms
+    // Build initial state and prime first note (enables buzzer + sets LED ptr)
+    state_t state = InitStateMachine();
+
+    SetTimerG0Delay(20);      // ~0.641 ms per tick (21 counts at 32768 Hz)
     EnableTimerG0();
 
-    // VERY BASIC LOOP - If button 1 signals a 0, enable the PWM
     while (1) {
-        if (timer_wakeup) { // Ignore SPI wakeups
-            uint32_t input = GPIOA->DIN31_0 & (SW1 + SW2 + SW3 + SW4);
-            if ((input & SW1) == 0) { // active low!
-                EnableBuzzer();
-                while (!SendSPIMessage(onTxPacket, message_len)) 
-                {
-                    // Block until previous message is complete                
-                }
-            }
-            else {
-                DisableBuzzer();
-                while (!SendSPIMessage(offTxPacket, message_len)) 
-                {
-                    // Block until previous message is complete
-                }
-            }
+        if (timer_wakeup) {
+            timer_wakeup = false;
+
+            // Advance state machine: updates buzzer and current_led_packet
+            state = TickStateMachine(state);
+
+            // Push current LED color pattern out over SPI.
+            // Spin if the previous SPI message is still in flight (rare:
+            // SPI takes ~96 µs, timer period is ~641 µs).
+            while (!SendSPIMessage(current_led_packet, LED_MSG_LEN)) {}
         }
-        
-        // The above is just a basic example I expect you to implement functions that look something like this:
-        // SetStateMachineOutput(state);
-        // state = GetNextState(state, input);
 
-        __WFI(); // Go to sleep until timer counts down again.
+        // Clear any SPI wakeup flag — we handle SPI entirely in its ISR
+        spi_wakeup = false;
+
+        __WFI(); // sleep until the next interrupt (timer or SPI)
     }
-
 }
-
